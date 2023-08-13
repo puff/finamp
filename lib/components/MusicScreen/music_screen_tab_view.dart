@@ -76,7 +76,7 @@ class _MusicScreenTabViewState extends State<MusicScreenTabView>
         parentItem: widget.parentItem ??
             widget.view ??
             _finampUserHelper.currentUser?.currentView,
-        includeItemTypes: _includeItemTypes(widget.tabContentType),
+        includeItemTypes: widget.tabContentType.itemType(),
 
         // If we're on the songs tab, sort by "Album,SortName". This is what the
         // Jellyfin web client does. If this isn't the case, check if parentItem
@@ -186,7 +186,7 @@ class _MusicScreenTabViewState extends State<MusicScreenTabView>
                 offlineSortedItems = downloadsHelper.downloadedParents
                     .where((element) =>
                         element.item.type ==
-                            _includeItemTypes(widget.tabContentType) &&
+                            widget.tabContentType.itemType() &&
                         element.viewId ==
                             _finampUserHelper.currentUser!.currentViewId)
                     .map((e) => e.item)
@@ -443,23 +443,6 @@ class _MusicScreenTabViewState extends State<MusicScreenTabView>
   }
 }
 
-String _includeItemTypes(TabContentType tabContentType) {
-  switch (tabContentType) {
-    case TabContentType.songs:
-      return "Audio";
-    case TabContentType.albums:
-      return "MusicAlbum";
-    case TabContentType.artists:
-      return "MusicArtist";
-    case TabContentType.genres:
-      return "MusicGenre";
-    case TabContentType.playlists:
-      return "Playlist";
-    default:
-      throw const FormatException("Unsupported TabContentType");
-  }
-}
-
 bool _offlineSearch(
     {required BaseItemDto item,
     required String searchTerm,
@@ -473,5 +456,5 @@ bool _offlineSearch(
     containsName = item.name!.toLowerCase().contains(searchTerm.toLowerCase());
   }
 
-  return item.type == _includeItemTypes(tabContentType) && containsName;
+  return item.type == tabContentType.itemType() && containsName;
 }
