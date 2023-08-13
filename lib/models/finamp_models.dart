@@ -318,6 +318,23 @@ enum TabContentType {
   String toLocalisedString(BuildContext context) =>
       _humanReadableLocalisedName(this, context);
 
+  static TabContentType fromItemType(String itemType) {
+    switch (itemType) {
+      case "Audio":
+        return TabContentType.songs;
+      case "MusicAlbum":
+        return TabContentType.albums;
+      case "MusicArtist":
+        return TabContentType.artists;
+      case "MusicGenre":
+        return TabContentType.genres;
+      case "Playlist":
+        return TabContentType.playlists;
+      default:
+        throw const FormatException("Unsupported itemType");
+    }
+  }
+
   String itemType() {
     switch (this) {
       case TabContentType.songs:

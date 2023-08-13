@@ -1,19 +1,23 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:android_id/android_id.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:device_info_plus/device_info_plus.dart';
+import 'package:finamp/services/locale_helper.dart';
 import 'package:flutter/foundation.dart';
 import 'package:get_it/get_it.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:logging/logging.dart';
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 
 import '../models/finamp_models.dart';
 import '../models/jellyfin_models.dart';
 import 'finamp_settings_helper.dart';
 import 'finamp_user_helper.dart';
 import 'jellyfin_api_helper.dart';
+import 'media_item_helper.dart';
 
 /// This provider handles the currently playing music so that multiple widgets
 /// can control music.
@@ -35,6 +39,7 @@ class MusicPlayerBackgroundTask extends BaseAudioHandler {
   final _audioServiceBackgroundTaskLogger = Logger("MusicPlayerBackgroundTask");
   final _jellyfinApiHelper = GetIt.instance<JellyfinApiHelper>();
   final _finampUserHelper = GetIt.instance<FinampUserHelper>();
+  final _mediaItemHelper = GetIt.instance<MediaItemHelper>();
 
   /// Set when shuffle mode is changed. If true, [onUpdateQueue] will create a
   /// shuffled [ConcatenatingAudioSource].
@@ -127,6 +132,149 @@ class MusicPlayerBackgroundTask extends BaseAudioHandler {
         (_) => playbackState.add(_transformEvent(_player.playbackEvent)));
     _player.loopModeStream.listen(
         (_) => playbackState.add(_transformEvent(_player.playbackEvent)));
+  }
+
+  Future<MediaItem> _convertToMediaItem(BaseItemDto item, String categoryId) async {
+    final tabContentType = TabContentType.fromItemType(item.type!);
+    var id = '${tabContentType.name}|';
+    if (item.isFolder ?? tabContentType != TabContentType.songs && categoryId == '-1') {
+      id += item.id;
+    } else {
+      id += '$categoryId|${item.id}';
+    }
+
+    final playable = tabContentType == TabContentType.albums || tabContentType == TabContentType.playlists || tabContentType == TabContentType.songs;
+    return await _mediaItemHelper.generateMediaItem(item, id: id, playable: playable);
+  }
+
+  Future<List<MediaItem>> _getMediaItems(String parentMediaId, {bool getAllSongsInView = false}) async {
+    var locale = LocaleHelper.locale;
+    // if LocaleHelper.locale is null, it means the default system language is used.
+    if (locale == null) {
+      final splitLocale = Platform.localeName.split('_');
+      if (splitLocale.length == 2) {
+        // Remove character set from country code
+        if (splitLocale.last.contains('.')) {
+          locale = Locale(splitLocale.first, splitLocale.last.substring(0, splitLocale.last.indexOf('.')));
+        }
+        else {
+          locale = Locale(splitLocale.first, splitLocale.last);
+        }
+      } else {
+        locale = Locale(splitLocale.first);
+      }
+    }
+
+    final appLocalizations = await AppLocalizations.delegate.load(locale);
+
+    // Display the root category
+    if (parentMediaId == AudioService.browsableRootId) {
+      return [
+        MediaItem(
+            id: '${TabContentType.albums.name}|-1',
+            title: appLocalizations.albums,
+            playable: false
+        ),
+        MediaItem(
+            id: '${TabContentType.artists.name}|-1',
+            title: appLocalizations.artists,
+            playable: false
+        ),
+        MediaItem(
+            id: '${TabContentType.playlists.name}|-1',
+            title: appLocalizations.playlists,
+            playable: false
+        ),
+        MediaItem(
+            id: '${TabContentType.genres.name}|-1',
+            title: appLocalizations.genres,
+            playable: false
+        ),
+        MediaItem(
+            id: '${TabContentType.songs.name}|-1',
+            title: appLocalizations.songs,
+            playable: false
+        ),
+      ];
+    }
+
+    final split = parentMediaId.split('|');
+    if (split.length < 2) {
+      throw FormatException("Invalid parentMediaId format `$parentMediaId`");
+    }
+    final type = split[0];
+    final categoryId = split[1];
+    final itemId = split.length == 3 ? split[2] : null;
+    final tabContentType = TabContentType.values.firstWhere((e) => e.name == type);
+
+    // TODO: add offline / downloads support
+    // if (FinampSettingsHelper.finampSettings.isOffline) {
+    //
+    // }
+
+    final sortBy = tabContentType == TabContentType.songs ? "Album,SortName" : tabContentType == TabContentType.artists ? "ProductionYear,PremiereDate" : "SortName";
+
+    // We only need the id, so we don't have to use `_jellyfinApiHelper.getItemById`
+    // Uses the current view as fallback to ensure we get the correct items.
+    // If category id is defined, use that. Otherwise, if an item id is defined
+    final parentItem = categoryId != '-1'
+        ? BaseItemDto(id: categoryId, type: tabContentType.itemType())
+        : (itemId != null && (tabContentType != TabContentType.songs || !getAllSongsInView) // getAllSongsInView is used here for finding the index of the song in `playFromMediaId` when playing from the songs category.
+          ? BaseItemDto(id: itemId, type: tabContentType.itemType())
+          : _finampUserHelper.currentUser?.currentView);
+
+    // Select the item type that each category holds
+    final includeItemTypes = categoryId != '-1' // If categoryId is -1, we are browsing a root library. e.g. Browsing the list of all albums or artists.
+        ? (tabContentType == TabContentType.albums ? TabContentType.songs.itemType() // List an album's songs.
+          : tabContentType == TabContentType.artists ? TabContentType.albums.itemType() // List an artist's albums.
+          : tabContentType == TabContentType.playlists ? TabContentType.songs.itemType() // List a playlist's songs.
+          : tabContentType == TabContentType.genres ? TabContentType.albums.itemType() // List a genre's albums.
+          : tabContentType == TabContentType.songs ? TabContentType.songs.itemType()
+          : throw FormatException("Unsupported TabContentType `$tabContentType`"))
+        : tabContentType.itemType(); // Display the root library.
+
+    final items = await _jellyfinApiHelper.getItems(parentItem: parentItem, sortBy: sortBy, includeItemTypes: includeItemTypes, isGenres: tabContentType == TabContentType.genres);
+    List<MediaItem> mediaItems = items != null ? [for (final item in items) await _convertToMediaItem(item, categoryId)] : [];
+    return mediaItems;
+  }
+
+  @override
+  Future<List<MediaItem>> getChildren(String parentMediaId, [Map<String, dynamic>? options]) async {
+    return await _getMediaItems(parentMediaId);
+  }
+
+  // https://github.com/ryanheise/audio_service/blob/audio_service-v0.18.10/audio_service/example/lib/example_multiple_handlers.dart#L367
+  @override
+  Future<void> skipToQueueItem(int index) async {
+    if (index < 0 || index >= queue.value.length) return;
+    // This jumps to the beginning of the queue item at newIndex.
+    _player.seek(Duration.zero, index: index);
+  }
+
+  @override
+  Future<void> playFromMediaId(String mediaId, [Map<String, dynamic>? extras]) async {
+    final split = mediaId.split('|');
+    if (split.length < 2) {
+      throw FormatException("Invalid mediaId format `$mediaId`");
+    }
+    final type = split[0];
+    final categoryId = split[1];
+    final itemId = split.length == 3 ? split[2] : null;
+
+    // Get all songs in current category (either a single album, or all the songs in view)
+    final categoryMediaItems = await _getMediaItems(mediaId, getAllSongsInView: true);
+
+    // If we're playing an individual song, find the index of it in the category and skip to it.
+    if (itemId != null) {
+      final mediaItem = await _mediaItemHelper.generateMediaItem(await _jellyfinApiHelper.getItemById(itemId), id: '$type|$categoryId|$itemId');
+      final index = categoryMediaItems.indexOf(mediaItem);
+      setNextInitialIndex(index);
+    }
+
+    // TODO: add shuffling?
+
+    await updateQueue(categoryMediaItems);
+    await play();
   }
 
   @override

@@ -1,6 +1,5 @@
 import 'package:audio_service/audio_service.dart';
 import 'package:get_it/get_it.dart';
-import 'package:uuid/uuid.dart';
 
 import '../models/jellyfin_models.dart';
 import 'downloads_helper.dart';
@@ -11,16 +10,15 @@ class MediaItemHelper {
   final _jellyfinApiHelper = GetIt.instance<JellyfinApiHelper>();
   final _downloadsHelper = GetIt.instance<DownloadsHelper>();
 
-  Future<MediaItem> generateMediaItem(BaseItemDto item) async {
-    const uuid = Uuid();
-
+  Future<MediaItem> generateMediaItem(BaseItemDto item, {String? id, bool playable = true}) async {
     final downloadedSong = _downloadsHelper.getDownloadedSong(item.id);
     final isDownloaded = downloadedSong == null
         ? false
         : await _downloadsHelper.verifyDownloadedSong(downloadedSong);
 
     return MediaItem(
-      id: uuid.v4(),
+      id: id ?? item.id,
+      playable: playable,
       album: item.album,
       artist: item.artists?.join(", ") ?? item.albumArtist,
       artUri: _downloadsHelper.getDownloadedImage(item)?.file.uri ??
