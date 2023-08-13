@@ -1,13 +1,13 @@
 import 'package:audio_service/audio_service.dart';
 import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
-import 'package:uuid/uuid.dart';
 
 import 'finamp_user_helper.dart';
 import 'jellyfin_api_helper.dart';
 import 'finamp_settings_helper.dart';
 import 'downloads_helper.dart';
 import '../models/jellyfin_models.dart';
+import 'media_item_helper.dart';
 import 'music_player_background_task.dart';
 
 /// Just some functions to make talking to AudioService a bit neater.
@@ -16,6 +16,7 @@ class AudioServiceHelper {
   final _downloadsHelper = GetIt.instance<DownloadsHelper>();
   final _audioHandler = GetIt.instance<MusicPlayerBackgroundTask>();
   final _finampUserHelper = GetIt.instance<FinampUserHelper>();
+  final _mediaItemHelper = GetIt.instance<MediaItemHelper>();
   final audioServiceHelperLogger = Logger("AudioServiceHelper");
 
   /// Replaces the queue with the given list of items. If startAtIndex is specified, Any items below it
@@ -34,7 +35,7 @@ class AudioServiceHelper {
       List<MediaItem> queue = [];
       for (BaseItemDto item in itemList) {
         try {
-          queue.add(await _generateMediaItem(item));
+          queue.add(await _mediaItemHelper.generateMediaItem(item));
         } catch (e) {
           audioServiceHelperLogger.severe(e);
         }
@@ -73,7 +74,7 @@ class AudioServiceHelper {
         return;
       }
 
-      final itemMediaItem = await _generateMediaItem(item);
+      final itemMediaItem = await _mediaItemHelper.generateMediaItem(item);
       await _audioHandler.addQueueItem(itemMediaItem);
     } catch (e) {
       audioServiceHelperLogger.severe(e);
@@ -157,39 +158,5 @@ class AudioServiceHelper {
       audioServiceHelperLogger.severe(e);
       return Future.error(e);
     }
-  }
-
-  Future<MediaItem> _generateMediaItem(BaseItemDto item) async {
-    const uuid = Uuid();
-
-    final downloadedSong = _downloadsHelper.getDownloadedSong(item.id);
-    final isDownloaded = downloadedSong == null
-        ? false
-        : await _downloadsHelper.verifyDownloadedSong(downloadedSong);
-
-    return MediaItem(
-      id: uuid.v4(),
-      album: item.album ?? "Unknown Album",
-      artist: item.artists?.join(", ") ?? item.albumArtist,
-      artUri: _downloadsHelper.getDownloadedImage(item)?.file.uri ??
-          _jellyfinApiHelper.getImageUrl(item: item),
-      title: item.name ?? "Unknown Name",
-      extras: {
-        // "parentId": item.parentId,
-        // "itemId": item.id,
-        "itemJson": item.toJson(),
-        "shouldTranscode": FinampSettingsHelper.finampSettings.shouldTranscode,
-        "downloadedSongJson": isDownloaded
-            ? (_downloadsHelper.getDownloadedSong(item.id))!.toJson()
-            : null,
-        "isOffline": FinampSettingsHelper.finampSettings.isOffline,
-        // TODO: Maybe add transcoding bitrate here?
-      },
-      // Jellyfin returns microseconds * 10 for some reason
-      duration: Duration(
-        microseconds:
-            (item.runTimeTicks == null ? 0 : item.runTimeTicks! ~/ 10),
-      ),
-    );
   }
 }

@@ -6,6 +6,7 @@ import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:finamp/services/finamp_settings_helper.dart';
 import 'package:finamp/services/finamp_user_helper.dart';
+import 'package:finamp/services/media_item_helper.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_downloader/flutter_downloader.dart';
@@ -196,6 +197,9 @@ Future<void> setupHive() async {
 Future<void> _setupAudioServiceHelper() async {
   final session = await AudioSession.instance;
   session.configure(const AudioSessionConfiguration.music());
+
+  // Register this first as both AudioServiceHelper and MusicPlayerBackgroundTask require it
+  GetIt.instance.registerSingleton<MediaItemHelper>(MediaItemHelper());
 
   final audioHandler = await AudioService.init(
     builder: () => MusicPlayerBackgroundTask(),
