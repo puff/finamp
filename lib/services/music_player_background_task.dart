@@ -99,31 +99,7 @@ class MusicPlayerBackgroundTask extends BaseAudioHandler {
       mediaItem.add(currentItem);
 
       if (!FinampSettingsHelper.finampSettings.isOffline) {
-        final jellyfinApiHelper = GetIt.instance<JellyfinApiHelper>();
-
-        if (_previousItem != null) {
-          final playbackData = generatePlaybackProgressInfo(
-            item: _previousItem,
-            includeNowPlayingQueue: true,
-            isStopEvent: true,
-          );
-
-          if (playbackData != null) {
-            await jellyfinApiHelper.stopPlaybackProgress(playbackData);
-          }
-        }
-
-        final playbackData = generatePlaybackProgressInfo(
-          item: currentItem,
-          includeNowPlayingQueue: true,
-        );
-
-        if (playbackData != null) {
-          await jellyfinApiHelper.reportPlaybackStart(playbackData);
-        }
-
-        // Set item for next index update
-        _previousItem = currentItem;
+        await _updatePlaybackInfo(currentItem);
       }
     });
 
@@ -132,6 +108,34 @@ class MusicPlayerBackgroundTask extends BaseAudioHandler {
         (_) => playbackState.add(_transformEvent(_player.playbackEvent)));
     _player.loopModeStream.listen(
         (_) => playbackState.add(_transformEvent(_player.playbackEvent)));
+  }
+
+  Future<void> _updatePlaybackInfo(MediaItem currentItem) async {
+    final jellyfinApiHelper = GetIt.instance<JellyfinApiHelper>();
+
+    if (_previousItem != null) {
+      final playbackData = generatePlaybackProgressInfo(
+        item: _previousItem,
+        includeNowPlayingQueue: true,
+        isStopEvent: true,
+      );
+
+      if (playbackData != null) {
+        await jellyfinApiHelper.stopPlaybackProgress(playbackData);
+      }
+    }
+
+    final playbackData = generatePlaybackProgressInfo(
+      item: currentItem,
+      includeNowPlayingQueue: true,
+    );
+
+    if (playbackData != null) {
+      await jellyfinApiHelper.reportPlaybackStart(playbackData);
+    }
+
+    // Set item for next index update
+    _previousItem = currentItem;
   }
 
   Future<MediaItem> _convertToMediaItem(BaseItemDto item, String categoryId) async {
@@ -265,15 +269,20 @@ class MusicPlayerBackgroundTask extends BaseAudioHandler {
     final categoryMediaItems = await _getMediaItems(mediaId, getAllSongsInView: true);
 
     // If we're playing an individual song, find the index of it in the category and skip to it.
+    var index = 0;
     if (itemId != null) {
       final mediaItem = await _mediaItemHelper.generateMediaItem(await _jellyfinApiHelper.getItemById(itemId), id: '$type|$categoryId|$itemId');
-      final index = categoryMediaItems.indexOf(mediaItem);
+      index = categoryMediaItems.indexOf(mediaItem);
       setNextInitialIndex(index);
     }
 
     // TODO: add shuffling?
 
     await updateQueue(categoryMediaItems);
+
+    final currentItem = _getQueueItem(index);
+    mediaItem.add(currentItem);
+    _updatePlaybackInfo(currentItem);
     await play();
   }
 
