@@ -244,6 +244,9 @@ class MusicPlayerBackgroundTask extends BaseAudioHandler {
 
   @override
   Future<List<MediaItem>> getChildren(String parentMediaId, [Map<String, dynamic>? options]) async {
+    if (!parentMediaId.contains('|')) {
+      return super.getChildren(parentMediaId);
+    }
     return await _getMediaItems(parentMediaId);
   }
 
@@ -259,7 +262,7 @@ class MusicPlayerBackgroundTask extends BaseAudioHandler {
   Future<void> playFromMediaId(String mediaId, [Map<String, dynamic>? extras]) async {
     final split = mediaId.split('|');
     if (split.length < 2) {
-      throw FormatException("Invalid mediaId format `$mediaId`");
+      return super.prepareFromMediaId(mediaId, extras);
     }
     final type = split[0];
     final categoryId = split[1];
