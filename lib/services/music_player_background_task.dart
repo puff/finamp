@@ -244,7 +244,7 @@ class MusicPlayerBackgroundTask extends BaseAudioHandler {
 
   @override
   Future<List<MediaItem>> getChildren(String parentMediaId, [Map<String, dynamic>? options]) async {
-    if (!parentMediaId.contains('|')) {
+    if (!parentMediaId.contains('|') && parentMediaId != AudioService.browsableRootId) {
       return super.getChildren(parentMediaId);
     }
     return await _getMediaItems(parentMediaId);
